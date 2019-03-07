@@ -3,9 +3,8 @@ package rpcpool
 import (
 	"errors"
 	"fmt"
-	"sync"
 	"net/rpc"
-	"net"
+	"sync"
 )
 
 // channelPool implements the Pool interface based on buffered channels.
@@ -13,6 +12,8 @@ type channelPool struct {
 	// storage for our net.Conn connections
 	mu    sync.Mutex
 	conns chan *rpc.Client
+	// used connections
+	workConns chan *rpc.Client
 
 	// net.Conn generator
 	factory Factory
@@ -33,8 +34,9 @@ func NewChannelPool(initialCap, maxCap int, factory Factory) (Pool, error) {
 	}
 
 	c := &channelPool{
-		conns:   make(chan *rpc.Client, maxCap),
-		factory: factory,
+		conns:     make(chan *rpc.Client, maxCap),
+		workConns: make(chan *rpc.Client, maxCap),
+		factory:   factory,
 	}
 
 	// create initial connections, if something goes wrong,
@@ -70,21 +72,24 @@ func (c *channelPool) Get() (*rpc.Client, error) {
 
 	// wrap our connections with out custom net.Conn implementation (wrapConn
 	// method) that puts the connection back to the pool if it's closed.
-	for{
+	for {
 		select {
 		case conn := <-conns:
+			c.workConns <- conn
 			if conn == nil {
 				return nil, ErrClosed
 			}
-
 			return conn, nil
 		default:
+			if len(c.workConns) >= cap(c.workConns) {
+				continue
+			}
 			conn, err := factory()
 			if err != nil {
 				return nil, err
 			}
-			c.conns <- conn
-			return c.Get()
+			c.workConns <- conn
+			return conn, nil
 		}
 	}
 
@@ -109,15 +114,13 @@ func (c *channelPool) PutBack(conn *rpc.Client) error {
 	// block and the default case will be executed.
 	select {
 	case c.conns <- conn:
+		<-c.workConns
 		return nil
 	default:
 		// pool is full, close passed connection
+		<-c.workConns
 		return conn.Close()
 	}
-}
-
-func (c *channelPool) put(conn net.Conn) error {
-	return nil
 }
 
 func (c *channelPool) Close() {
