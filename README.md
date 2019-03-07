@@ -4,7 +4,8 @@
 
 实现了protorpc的连接池
 
-##用法
+## 用法 ##
+```
 func factory() (*rpc.Client, error) {
 	return protorpc.Dial("tcp", "127.0.0.1:2234")
 }
@@ -18,3 +19,4 @@ if err != nil {
 }
 //do something
 rpcPool.PutBack(rpcConn)
+```
