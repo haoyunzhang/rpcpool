@@ -126,6 +126,7 @@ func (c *channelPool) PutBack(conn *rpc.Client) error {
 func (c *channelPool) Close() {
 	c.mu.Lock()
 	conns := c.conns
+	workConns := c.workConns
 	c.conns = nil
 	c.factory = nil
 	c.mu.Unlock()
@@ -136,6 +137,13 @@ func (c *channelPool) Close() {
 
 	close(conns)
 	for conn := range conns {
+		conn.Close()
+	}
+	if workConns == nil {
+		return
+	}
+	close(workConns)
+	for conn := range workConns {
 		conn.Close()
 	}
 }
